@@ -435,19 +435,30 @@
     }
 
     /** Issue #3: Tabela de Tarefas com 4 campos visíveis, 5 itens por página, ordenação, seleção e exclusão */
-    function SearchFilters({ filters, active, error, onChange, onClear }) {
+    function SearchFilters({ filters, active, error, onChange, onClear, onExport, exporting }) {
       return (
         <div className="card" id="search-section">
           <div className="filters-header">
             <h2>Busca avançada</h2>
-            <button
-              type="button"
-              className="secondary small"
-              disabled={!active}
-              onClick={onClear}
-            >
-              Limpar filtros
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="secondary small"
+                disabled={exporting}
+                onClick={onExport}
+                title="Exportar registros filtrados para arquivo CSV"
+              >
+                {exporting ? 'Exportando...' : '📥 Exportar CSV'}
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                disabled={!active}
+                onClick={onClear}
+              >
+                Limpar filtros
+              </button>
+            </div>
           </div>
 
           {error && <div className="alert alert-danger" role="alert">{error}</div>}
@@ -831,6 +842,41 @@
         fetchRecords();
       }
 
+      
+      // Issue #5: exporta todos os registros correspondentes aos filtros atuais em arquivo CSV
+      const [exporting, setExporting] = useState(false);
+      async function handleExportCsv() {
+        setExporting(true);
+        try {
+          const params = new URLSearchParams();
+          Object.entries(applied).forEach(([name, value]) => {
+            if (value) params.set(name, value);
+          });
+          const queryStr = params.toString() ? '?' + params.toString() : '';
+          const res = await fetch('/api/web/records/export' + queryStr, {
+            headers: { Authorization: 'Bearer ' + token }
+          });
+          if (!res.ok) {
+            alert('Não foi possível exportar os registros.');
+            return;
+          }
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'tarefas.csv';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(url);
+          setFeedback('Exportação CSV concluída com sucesso!');
+        } catch (e) {
+          alert('Erro de conexão ao exportar CSV.');
+        } finally {
+          setExporting(false);
+        }
+      }
+
       function handleSaved() {
         setEditingRecord(null);
         fetchRecords();
@@ -869,6 +915,8 @@
             error={searchError}
             onChange={handleFilterChange}
             onClear={handleClearFilters}
+            onExport={handleExportCsv}
+            exporting={exporting}
           />
 
           <RecordsTable

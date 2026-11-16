@@ -8,7 +8,7 @@ Projeto da avaliação prática de Git e GitHub. Lista de tarefas com Web (React
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `index.html` | Toda a Web (HTML, CSS e React via CDN embutidos): login, cadastro/edição, tabela e busca avançada |
+| `index.html` | Toda a Web (HTML, CSS e React via CDN embutidos): login, cadastro/edição, tabela, busca avançada e exportação CSV |
 | `api.ts` | API NestJS: endpoints, autenticação e logs da API |
 | `db.ts` | Acesso ao SQLite e logs da camada de banco |
 | `cli.ts` | CLI: fala só com a API (`/api/cli/*`), nunca com o banco (issues #7, #8 e #9) |
@@ -428,6 +428,67 @@ docker compose logs --no-log-prefix app | grep -E '"operation":"(list_records|li
 ```
 
 Parâmetros ou ID inválidos geram `WARN` apenas na camada `api` (não há acesso ao banco); tarefa inexistente gera `WARN` nas duas camadas.
+
+---
+
+
+## Issue #5: Exportação CSV (Web)
+
+Funcionalidade de exportação de tarefas para arquivo CSV (`.csv`) com base nos filtros atualmente aplicados na busca avançada:
+- **Botão na interface Web:** Botão **📥 Exportar CSV** localizado na barra de busca avançada;
+- **Endpoint dedicado:** `GET /api/web/records/export` com headers `Content-Type: text/csv; charset=utf-8` e `Content-Disposition: attachment; filename="tarefas.csv"`;
+- **Escopo completo:** Exporta **todos os resultados filtrados**, não apenas a página atual de 5 itens. Se nenhum filtro estiver ativo, exporta todos os registros cadastrados;
+- **Padrão RFC 4180:** Todos os campos são devidamente formatados e valores com aspas duplas (`"`), vírgulas (`,`) ou quebras de linha são envolvidos em aspas e tratados (`""`).
+
+### Campos do CSV
+
+O arquivo exportado contém a linha de cabeçalho seguida das linhas de dados:
+```csv
+id,title,description,category,priority,due_date,created_at,updated_at
+```
+
+### Endpoint da Issue #5
+
+| Método | Rota | Autenticação | Descrição |
+|---|---|---|---|
+| GET | `/api/web/records/export` | Bearer token (Web) | Exporta tarefas em CSV (com query params de filtro opcionais: `q`, `category`, `priority`, `due_from`, `due_to`) |
+
+### Exemplos via cURL
+
+```bash
+# Obter o token
+TOKEN=$(curl -s -X POST http://localhost:3000/api/web/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+
+# Exportar todos os registros (sem filtros)
+curl -i "http://localhost:3000/api/web/records/export" \
+  -H "Authorization: Bearer $TOKEN" \
+  -o tarefas.csv
+
+# Exportar com filtros combinados (ex.: categoria e prioridade)
+curl -i "http://localhost:3000/api/web/records/export?category=Estudo&priority=alta" \
+  -H "Authorization: Bearer $TOKEN" \
+  -o tarefas_estudo_alta.csv
+
+# Sem token: responde HTTP 401
+curl -i "http://localhost:3000/api/web/records/export"
+```
+
+### Logs da exportação CSV
+
+Gera logs estruturados correlacionados entre a API e o banco com o mesmo `request_id`:
+
+```bash
+docker compose logs --no-log-prefix app | grep '"operation":"export_csv"'
+```
+
+```json
+{"timestamp":"2026-11-16T02:20:00.000Z","level":"INFO","layer":"db","client":"web","operation":"export_csv","status":"success","request_id":"c4b2...","message":"4 registro(s) exportado(s) para CSV (filtros: category, priority)"}
+{"timestamp":"2026-11-16T02:20:00.001Z","level":"INFO","layer":"api","client":"web","operation":"export_csv","status":"success","request_id":"c4b2...","message":"Exportação CSV gerada com 4 registro(s)"}
+```
+
+Filtros inválidos geram `WARN` na camada `api` com HTTP 400. Tokens e senhas nunca são registrados.
 
 ---
 

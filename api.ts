@@ -272,6 +272,33 @@ export function parseCliListOptions(query: Record<string, unknown>): {
   return { valid: errors.length === 0, errors, options: { page, limit, sort, order } };
 }
 
+
+/** Issue #5: formata valor individual para campo CSV seguindo a RFC 4180. */
+export function formatCsvField(val: unknown): string {
+  if (val === null || val === undefined) return '""';
+  const str = String(val);
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+/** Issue #5: converte lista de tarefas em conteúdo CSV no padrão RFC 4180. */
+export function formatRecordsCsv(records: RecordRow[]): string {
+  const headers = ['id', 'title', 'description', 'category', 'priority', 'due_date', 'created_at', 'updated_at'];
+  const lines = [headers.join(',')];
+  for (const r of records) {
+    lines.push([
+      r.id,
+      formatCsvField(r.title),
+      formatCsvField(r.description),
+      formatCsvField(r.category),
+      formatCsvField(r.priority),
+      r.due_date ? formatCsvField(r.due_date) : '""',
+      formatCsvField(r.created_at),
+      formatCsvField(r.updated_at),
+    ].join(','));
+  }
+  return lines.join('\r\n') + '\r\n';
+}
+
 /** Gera um request_id por requisição; o mesmo valor é repassado ao banco para correlacionar os logs. */
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {
@@ -484,6 +511,35 @@ export class WebController {
       `Busca retornou ${result.items.length} registro(s) de ${result.total}`,
     );
     return result;
+  }
+
+
+  /**
+   * Issue #5: exportação de registros em CSV (GET /api/web/records/export).
+   * Declarada antes de `records/:id` para não ser interpretada como id.
+   * Exporta todos os resultados filtrados (ou todos sem filtros), não limitada à página atual.
+   */
+  @Get('records/export')
+  @UseGuards(AuthGuard)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="tarefas.csv"')
+  exportRecordsCsv(@Query() query: Record<string, unknown>, @Req() req: WebRequest): string {
+    const validation = validateSearchFilters(query);
+    if (!validation.valid) {
+      apiLog(req.requestId, 'WARN', 'export_csv', 'error', 'Filtros de busca inválidos para exportação CSV');
+      throw new BadRequestException({ message: 'Filtros inválidos', errors: validation.errors });
+    }
+
+    const records = this.db.exportRecordsCsv(validation.filters, req.requestId, 'web');
+    const csv = formatRecordsCsv(records);
+    apiLog(
+      req.requestId,
+      'INFO',
+      'export_csv',
+      'success',
+      `Exportação CSV gerada com ${records.length} registro(s)`,
+    );
+    return csv;
   }
 
   /** Consulta de registro específico por id (suporte ao formulário de edição). */

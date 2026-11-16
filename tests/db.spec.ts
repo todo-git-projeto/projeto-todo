@@ -566,3 +566,74 @@ describe('findCliUser (issue #7)', () => {
     db.close();
   });
 });
+
+describe('Db - exportRecordsCsv (issue #5)', () => {
+  function seeded(): Db {
+    const db = new Db(':memory:');
+    const base = { description: 'Descrição básica' };
+    db.createRecord({ ...base, title: 'Tarefa Alfa', category: 'Trabalho', priority: 'alta', due_date: '2026-12-05' }, 's1', 'web');
+    db.createRecord({ ...base, title: 'Tarefa Beta', category: 'Estudo', priority: 'media', due_date: '2026-12-20' }, 's2', 'web');
+    db.createRecord({ ...base, title: 'Tarefa Gama', category: 'Estudo', priority: 'alta', due_date: null }, 's3', 'web');
+    db.createRecord({ ...base, title: 'Tarefa Delta 100%', description: 'contém "aspas" e vírgula, ok', category: 'Geral', priority: 'baixa' }, 's4', 'web');
+    written = [];
+    return db;
+  }
+
+  it('sem filtros retorna todos os registros ordenados por id e registra log db com request_id', () => {
+    const db = seeded();
+    const records = db.exportRecordsCsv({}, 'req-export-1', 'web');
+    expect(records).toHaveLength(4);
+    expect(records.map((r) => r.title)).toEqual([
+      'Tarefa Alfa',
+      'Tarefa Beta',
+      'Tarefa Gama',
+      'Tarefa Delta 100%',
+    ]);
+
+    expect(logs()[0]).toMatchObject({
+      level: 'INFO',
+      layer: 'db',
+      client: 'web',
+      operation: 'export_csv',
+      status: 'success',
+      request_id: 'req-export-1',
+    });
+    expect(logs()[0].message).toContain('4 registro(s) exportado(s) para CSV (filtros: nenhum)');
+    db.close();
+  });
+
+  it('filtra por texto, categoria, prioridade e prazos na exportação', () => {
+    const db = seeded();
+    const filteredQ = db.exportRecordsCsv({ q: 'Beta' }, 'req-exp-2', 'web');
+    expect(filteredQ.map((r) => r.title)).toEqual(['Tarefa Beta']);
+
+    const filteredCat = db.exportRecordsCsv({ category: 'estudo' }, 'req-exp-3', 'web');
+    expect(filteredCat.map((r) => r.title)).toEqual(['Tarefa Beta', 'Tarefa Gama']);
+
+    const filteredPriority = db.exportRecordsCsv({ priority: 'alta' }, 'req-exp-4', 'web');
+    expect(filteredPriority.map((r) => r.title)).toEqual(['Tarefa Alfa', 'Tarefa Gama']);
+
+    const filteredDates = db.exportRecordsCsv({ due_from: '2026-12-01', due_to: '2026-12-10' }, 'req-exp-5', 'web');
+    expect(filteredDates.map((r) => r.title)).toEqual(['Tarefa Alfa']);
+
+    const filteredDueFromOnly = db.exportRecordsCsv({ due_from: '2026-12-10' }, 'req-exp-6', 'web');
+    expect(filteredDueFromOnly.map((r) => r.title)).toEqual(['Tarefa Beta']);
+
+    const filteredDueToOnly = db.exportRecordsCsv({ due_to: '2026-12-10' }, 'req-exp-7', 'web');
+    expect(filteredDueToOnly.map((r) => r.title)).toEqual(['Tarefa Alfa']);
+
+    expect(logs().pop().message).toContain('filtros: due_to');
+    db.close();
+  });
+
+  it('combina filtros e trata caracteres de escape como % e _', () => {
+    const db = seeded();
+    const combined = db.exportRecordsCsv({ q: 'Delta', category: 'Geral', priority: 'baixa' }, 'req-exp-8', 'web');
+    expect(combined.map((r) => r.title)).toEqual(['Tarefa Delta 100%']);
+
+    const percent = db.exportRecordsCsv({ q: '100%' }, 'req-exp-9', 'web');
+    expect(percent.map((r) => r.title)).toEqual(['Tarefa Delta 100%']);
+
+    db.close();
+  });
+});

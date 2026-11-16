@@ -9,6 +9,8 @@ import {
   parseCliListOptions,
   validateRecordInput,
   validateSearchFilters,
+  formatCsvField,
+  formatRecordsCsv,
 } from '../api';
 import { Db } from '../db';
 
@@ -971,6 +973,124 @@ describe('CLI (issue #8): PUT /api/cli/records/:id (Edição)', () => {
 
     expect(logs().find((l) => l.layer === 'db' && l.operation === 'update_record'))
       .toMatchObject({ status: 'success', client: 'cli', request_id: requestId });
+  });
+});
+
+
+describe('formatCsvField e formatRecordsCsv (issue #5)', () => {
+  it('escapa aspas duplas e envolve valores em aspas conforme RFC 4180', () => {
+    expect(formatCsvField(null)).toBe('""');
+    expect(formatCsvField(undefined)).toBe('""');
+    expect(formatCsvField('Simples')).toBe('"Simples"');
+    expect(formatCsvField('Com "aspas"')).toBe('"Com ""aspas"""');
+    expect(formatCsvField('Com, vírgula')).toBe('"Com, vírgula"');
+  });
+
+  it('formata lista de registros no formato CSV completo', () => {
+    const records = [
+      {
+        id: 1,
+        title: 'Tarefa 1',
+        description: 'Desc com "aspas"',
+        category: 'Trabalho',
+        priority: 'alta',
+        due_date: '2026-12-31',
+        created_at: '2026-11-15T00:00:00Z',
+        updated_at: '2026-11-15T00:00:00Z',
+      },
+      {
+        id: 2,
+        title: 'Tarefa 2',
+        description: 'Sem prazo',
+        category: 'Geral',
+        priority: 'baixa',
+        due_date: null,
+        created_at: '2026-11-15T00:00:00Z',
+        updated_at: '2026-11-15T00:00:00Z',
+      },
+    ];
+
+    const csv = formatRecordsCsv(records);
+    expect(csv).toContain('id,title,description,category,priority,due_date,created_at,updated_at');
+    expect(csv).toContain('1,"Tarefa 1","Desc com ""aspas""","Trabalho","alta","2026-12-31"');
+    expect(csv).toContain('2,"Tarefa 2","Sem prazo","Geral","baixa",""');
+    expect(csv.endsWith('\r\n')).toBe(true);
+  });
+});
+
+describe('GET /api/web/records/export (exportação CSV - issue #5)', () => {
+  const exportCsv = (query = '') =>
+    request(app.getHttpServer())
+      .get(`/api/web/records/export${query}`)
+      .set('Authorization', `Bearer ${validToken}`);
+
+  beforeEach(() => {
+    written = [];
+  });
+
+  it('responde HTTP 401 sem token de autenticação', async () => {
+    const res = await request(app.getHttpServer()).get('/api/web/records/export');
+    expect(res.status).toBe(401);
+  });
+
+  it('responde HTTP 401 com token inválido', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/web/records/export')
+      .set('Authorization', 'Bearer token-invalido');
+    expect(res.status).toBe(401);
+  });
+
+  it('responde HTTP 400 quando filtros de busca são inválidos e emite log WARN', async () => {
+    const res = await exportCsv('?priority=invalida&due_from=data-invalida');
+    expect(res.status).toBe(400);
+    const body = JSON.parse(res.text);
+    expect(body.message).toBe('Filtros inválidos');
+    expect(body.errors.length).toBeGreaterThanOrEqual(1);
+
+    const warnLog = logs().find((l) => l.layer === 'api' && l.operation === 'export_csv');
+    expect(warnLog).toMatchObject({
+      layer: 'api',
+      level: 'WARN',
+      status: 'error',
+    });
+  });
+
+  it('exporta todos os registros em CSV sem filtros com headers corretos e correlação de logs', async () => {
+    const res = await exportCsv();
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toBe('attachment; filename="tarefas.csv"');
+
+    const csv = res.text;
+    expect(csv).toContain('id,title,description,category,priority,due_date,created_at,updated_at');
+    expect(csv).toContain('LupaAlfa um');
+
+    const requestId = res.headers['x-request-id'];
+    const apiLog = logs().find((l) => l.layer === 'api' && l.operation === 'export_csv');
+    const dbLog = logs().find((l) => l.layer === 'db' && l.operation === 'export_csv');
+
+    expect(apiLog).toMatchObject({
+      layer: 'api',
+      client: 'web',
+      operation: 'export_csv',
+      status: 'success',
+      request_id: requestId,
+    });
+    expect(dbLog).toMatchObject({
+      layer: 'db',
+      client: 'web',
+      operation: 'export_csv',
+      status: 'success',
+      request_id: requestId,
+    });
+  });
+
+  it('exporta apenas registros filtrados com parâmetros de busca', async () => {
+    const res = await exportCsv('?q=LupaAlfa&category=Estudo');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('LupaAlfa um');
+    expect(res.text).not.toContain('LupaAlfa dois');
+    expect(res.text).not.toContain('Cem por cento');
   });
 });
 
