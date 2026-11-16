@@ -607,6 +607,7 @@ export class WebController {
     return result;
   }
 
+
   /** Issue #3: Exclusão de registro via Web (DELETE /api/web/records/{id}). */
   @Delete('records/:id')
   @HttpCode(HttpStatus.OK)
@@ -780,6 +781,55 @@ export class CliController {
     );
 
     return result;
+  }
+
+
+
+  /** Issue #11: exportação de registros em CSV via CLI. */
+  @Get('records/export')
+  @UseGuards(CliAuthGuard)
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header('Content-Disposition', 'attachment; filename="tarefas.csv"')
+  exportRecordsCsv(
+    @Query() query: Record<string, unknown>,
+    @Req() req: WebRequest,
+  ): string {
+    const validation = validateSearchFilters(query);
+
+    if (!validation.valid) {
+      apiLog(
+        req.requestId,
+        'WARN',
+        'export_csv',
+        'error',
+        'Filtros de busca inválidos para exportação CSV',
+        'cli',
+      );
+
+      throw new BadRequestException({
+        message: 'Filtros inválidos',
+        errors: validation.errors,
+      });
+    }
+
+    const records = this.db.exportRecordsCsv(
+      validation.filters,
+      req.requestId,
+      'cli',
+    );
+
+    const csv = formatRecordsCsv(records);
+
+    apiLog(
+      req.requestId,
+      'INFO',
+      'export_csv',
+      'success',
+      `Exportação CSV gerada com ${records.length} registro(s)`,
+      'cli',
+    );
+
+    return csv;
   }
 
   /** Issue #9: exclusão por identificador via CLI (DELETE /api/cli/records/{id}). */

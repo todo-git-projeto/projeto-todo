@@ -736,3 +736,60 @@ Roda o Jest dentro do contêiner e afere a cobertura. A execução **exige 100% 
 ## Estrutura de Apoio
 
 `Dockerfile`, `docker-compose.yml`, `package.json`, `tsconfig.json`, `jest.config.js`, `tests/*.spec.ts`, `.gitignore`, `.dockerignore`, `.env.example` e `.github/PULL_REQUEST_TEMPLATE.md` são arquivos auxiliares (infraestrutura, configuração, testes e template de PR).
+
+## Issue #11: Exportação CSV via CLI
+
+A CLI permite exportar tarefas para um arquivo CSV diretamente pela API REST, utilizando autenticação Bearer Token e os filtros avançados da busca.
+
+### Comando
+
+```bash
+docker compose run --rm cli export [opções]
+```
+
+### Opções disponíveis
+
+| Opção | Descrição |
+|---|---|
+| `--output <arquivo>` | Caminho do arquivo CSV (padrão: `tarefas.csv`) |
+| `--q <texto>` | Busca textual |
+| `--category <categoria>` | Filtra por categoria |
+| `--priority <prioridade>` | Filtra por prioridade |
+| `--due-from <data>` | Data inicial de vencimento |
+| `--due-to <data>` | Data final de vencimento |
+| `--token <token>` | Token de autenticação |
+
+Os filtros podem ser combinados na mesma exportação.
+
+### Exemplos
+
+```bash
+# Exportar todas as tarefas
+docker compose run --rm cli export
+
+# Exportar para um caminho personalizado
+docker compose run --rm cli export --output tarefas.csv
+
+# Exportar tarefas filtradas
+docker compose run --rm cli export \
+  --category Estudo \
+  --priority alta \
+  --output tarefas_estudo.csv
+
+# Exportar utilizando busca textual e intervalo de vencimento
+docker compose run --rm cli export \
+  --q projeto \
+  --due-from 2026-01-01 \
+  --due-to 2026-12-31
+```
+
+### Endpoint utilizado
+
+`GET /api/cli/records/export`
+
+- Autenticação obrigatória por Bearer Token.
+- Exporta todos os registros correspondentes aos filtros, sem limitação de paginação.
+- Reutiliza o formato CSV da exportação Web, mantendo as mesmas colunas.
+- Registra logs estruturados com `request_id` e identificação do cliente `cli`.
+- Retorna HTTP 401 para falhas de autenticação e HTTP 400 para filtros inválidos.
+- A CLI salva a resposta no caminho informado por `--output` ou em `tarefas.csv` por padrão.

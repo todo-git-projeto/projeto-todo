@@ -1,4 +1,4 @@
-
+import { writeFile } from 'fs/promises';
 /**
  * CLI do To-Do List (issues #7 e #8).
  * Fala somente com a API REST (`/api/cli/*`); nunca acessa o banco diretamente.
@@ -45,6 +45,7 @@ const VALUE_FLAGS = new Set([
   'limit',
   'sort',
   'order',
+  'output',
 ]);
 
 const FLAG_ALIASES: Record<string, string> = {
@@ -65,6 +66,7 @@ Comandos:
   update     Edita uma tarefa (PUT /api/cli/records/:id, exige token)
   list       Lista as tarefas com paginação e ordenação (GET /api/cli/records, exige token)
   search     Busca tarefas com filtros combinados (GET /api/cli/records/search, exige token)
+  export     Exporta tarefas para CSV (GET /api/cli/records/export, exige token)
   delete     Exclui uma tarefa pelo ID (DELETE /api/cli/records/:id, exige token)
   dashboard  Mostra os 3 indicadores do dashboard em texto (GET /api/cli/dashboard, exige token)
 
@@ -86,6 +88,7 @@ Opções:
   --limit <n>              Tarefas por página, de 1 a 100 (padrão 5)
   --sort <campo>           Ordenação: id, title, category, priority, due_date ou created_at (padrão id)
   --order <asc|desc>        Direção da ordenação (padrão desc)
+  --output <arquivo>       Caminho do arquivo CSV (padrão tarefas.csv)
   -h, --help               Mostra esta ajuda
 
 Códigos de saída: 0 sucesso, 1 erro na API ou na conexão, 2 uso incorreto.`;
@@ -398,6 +401,63 @@ export async function run(
         io.out(formatRecordList(result.data));
         return 0;
       }
+
+
+      case 'export': {
+        const token = args.flags.token ?? env.TODO_TOKEN;
+        const headers: Record<string, string> = token
+          ? { Authorization: `Bearer ${token}` }
+          : {};
+
+        const query = new URLSearchParams();
+
+        const filters: Record<string, string> = {
+          q: 'q',
+          category: 'category',
+          priority: 'priority',
+          'due-from': 'due_from',
+          'due-to': 'due_to',
+        };
+
+        for (const [flag, param] of Object.entries(filters)) {
+          if (args.flags[flag] !== undefined) {
+            query.set(param, args.flags[flag]);
+          }
+        }
+
+        const queryString = query.toString();
+        const suffix = queryString ? `?${queryString}` : '';
+        const url = `${baseUrl}/api/cli/records/export${suffix}`;
+
+        const response = await fetchFn(url, {
+          method: 'GET',
+          headers,
+        });
+
+        if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+          return reportHttpError(io, {
+            ok: false,
+            status: response.status,
+            data,
+          });
+        }
+
+        const csv = await response.text();
+        const outputPath = args.flags.output ?? 'tarefas.csv';
+
+        try {
+          await writeFile(outputPath, csv, 'utf8');
+        } catch (error) {
+          io.err(`Não foi possível salvar o arquivo ${outputPath}: ${(error as Error).message}`);
+          return 1;
+        }
+
+        io.out(`CSV exportado com sucesso: ${outputPath}`);
+        return 0;
+      }
+
 
       case 'delete': {
         const id = Number(args.flags.id);

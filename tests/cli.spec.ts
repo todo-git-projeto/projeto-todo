@@ -1,4 +1,7 @@
 import { FetchFn, parseArgs, run, USAGE } from '../cli';
+import { readFile, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 interface Captured {
   out: string[];
@@ -15,6 +18,15 @@ function capture(): Captured {
 /** Resposta falsa da API: só o que a CLI usa (`ok`, `status` e `json()`). */
 function reply(status: number, body: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => body } as unknown as Response;
+}
+
+function csvReply(status: number, csv: string): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => csv,
+    json: async () => ({}),
+  } as unknown as Response;
 }
 
 describe('parseArgs', () => {
@@ -527,12 +539,140 @@ describe('run: delete (exclusão por identificador)', () => {
   });
 });
 
-describe('run: ajuda lista os comandos das issues #9 e #10', () => {
-  it('menciona list, delete, search e suas opções', () => {
+
+describe('run: export (exportação CSV - issue #11)', () => {
+  const outputPath = join(tmpdir(), 'todo-cli-export-issue11.csv');
+
+  afterEach(async () => {
+    await unlink(outputPath).catch(() => undefined);
+  });
+
+  it('exporta o CSV usando GET e salva no caminho informado', async () => {
+    const c = capture();
+    const csv = 'id,title,description\n1,Tarefa teste,Descrição\n';
+    const fetchFn = jest.fn().mockResolvedValue(csvReply(200, csv));
+
+    expect(
+      await run(
+        ['export', '--output', outputPath, '--token', 'token-teste'],
+        {},
+        c.io,
+        fetchFn,
+      ),
+    ).toBe(0);
+
+    expect(fetchFn.mock.calls[0][0]).toBe(
+      'http://localhost:3000/api/cli/records/export',
+    );
+    expect(fetchFn.mock.calls[0][1].method).toBe('GET');
+    expect(fetchFn.mock.calls[0][1].headers.Authorization).toBe(
+      'Bearer token-teste',
+    );
+
+    expect(await readFile(outputPath, 'utf8')).toBe(csv);
+    expect(c.out).toEqual([`CSV exportado com sucesso: ${outputPath}`]);
+    expect(c.err).toEqual([]);
+  });
+
+  it('envia os filtros combinados na query string', async () => {
+    const fetchFn = jest.fn().mockResolvedValue(
+      csvReply(200, 'id,title\n'),
+    );
+
+    await run(
+      [
+        'export',
+        '--q', 'comprar café',
+        '--category', 'Pessoal',
+        '--priority', 'alta',
+        '--due-from', '2026-11-01',
+        '--due-to', '2026-11-30',
+        '--output', outputPath,
+        '--token', 'abc',
+      ],
+      {},
+      capture().io,
+      fetchFn,
+    );
+
+    const url = new URL(fetchFn.mock.calls[0][0]);
+
+    expect(url.pathname).toBe('/api/cli/records/export');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: 'comprar café',
+      category: 'Pessoal',
+      priority: 'alta',
+      due_from: '2026-11-01',
+      due_to: '2026-11-30',
+    });
+  });
+
+  it('retorna erro quando a API rejeita a autenticação', async () => {
+    const c = capture();
+    const fetchFn = jest.fn().mockResolvedValue(
+      reply(401, { message: 'Unauthorized' }),
+    );
+
+    expect(
+      await run(['export'], { TODO_TOKEN: '' }, c.io, fetchFn),
+    ).toBe(1);
+
+    expect(fetchFn.mock.calls[0][1].headers.Authorization).toBeUndefined();
+    expect(c.err).toEqual(['Erro HTTP 401 - Unauthorized']);
+  });
+
+  it('exibe os motivos quando a API rejeita os filtros', async () => {
+    const c = capture();
+    const fetchFn = jest.fn().mockResolvedValue(
+      reply(400, {
+        message: 'Filtros inválidos',
+        errors: ['Prioridade inválida'],
+      }),
+    );
+
+    expect(
+      await run(['export', '--priority', 'urgente'], {}, c.io, fetchFn),
+    ).toBe(1);
+
+    expect(c.err).toEqual([
+      'Erro HTTP 400 - Filtros inválidos: Prioridade inválida',
+    ]);
+  });
+
+  it('retorna erro quando não consegue salvar o arquivo', async () => {
+    const c = capture();
+    const fetchFn = jest.fn().mockResolvedValue(
+      csvReply(200, 'id,title\n'),
+    );
+
+    const invalidPath = join(
+      tmpdir(),
+      'pasta-inexistente-issue11',
+      'tarefas.csv',
+    );
+
+    expect(
+      await run(
+        ['export', '--output', invalidPath, '--token', 'abc'],
+        {},
+        c.io,
+        fetchFn,
+      ),
+    ).toBe(1);
+
+    expect(c.err[0]).toContain(
+      `Não foi possível salvar o arquivo ${invalidPath}:`,
+    );
+  });
+});
+
+describe('run: ajuda lista os comandos das issues #9, #10 e #11', () => {
+  it('menciona list, delete, search, export e suas opções', () => {
     for (const text of [
       'list',
       'delete',
       'search',
+      'export',
       '--q',
       '--category',
       '--priority',
@@ -542,6 +682,7 @@ describe('run: ajuda lista os comandos das issues #9 e #10', () => {
       '--limit',
       '--sort',
       '--order',
+      '--output',
     ]) {
       expect(USAGE).toContain(text);
     }

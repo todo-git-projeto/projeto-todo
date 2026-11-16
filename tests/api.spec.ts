@@ -840,6 +840,7 @@ describe('CLI (issue #7): GET /api/cli/me', () => {
       .set('Authorization', `Bearer ${auth.sign('admin', 3600, 'cli')}`);
     expect(res.status).toBe(401);
   });
+  });
 
 
 describe('CLI (issue #8): POST /api/cli/records (Cadastro)', () => {
@@ -1092,8 +1093,6 @@ describe('GET /api/web/records/export (exportação CSV - issue #5)', () => {
     expect(res.text).not.toContain('LupaAlfa dois');
     expect(res.text).not.toContain('Cem por cento');
   });
-});
-
 });
 
 describe('parseCliListOptions (issue #9)', () => {
@@ -1558,5 +1557,110 @@ describe('GET /api/web/dashboard', () => {
       request_id: requestId,
     });
     expect(written.join('')).not.toContain(validToken);
+      });
+    });
+
+describe('CLI (issue #11): GET /api/cli/records/export (Exportação CSV)', () => {
+  const cliToken = () => auth.sign('admin', 3600, 'cli');
+
+  const exportCsv = (query = '') =>
+    request(app.getHttpServer())
+      .get(`/api/cli/records/export${query}`)
+      .set('Authorization', `Bearer ${cliToken()}`);
+
+  beforeEach(() => {
+    written = [];
+  });
+
+  it('responde HTTP 401 sem token de autenticação', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/cli/records/export');
+
+    expect(res.status).toBe(401);
+  });
+
+  it('responde HTTP 401 com token inválido ou token da Web', async () => {
+    const invalid = await request(app.getHttpServer())
+      .get('/api/cli/records/export')
+      .set('Authorization', 'Bearer token-invalido');
+
+    expect(invalid.status).toBe(401);
+
+    const webToken = await request(app.getHttpServer())
+      .get('/api/cli/records/export')
+      .set('Authorization', `Bearer ${validToken}`);
+
+    expect(webToken.status).toBe(401);
+  });
+
+  it('responde HTTP 400 quando os filtros são inválidos e registra WARN', async () => {
+    const res = await exportCsv('?priority=invalida&due_from=data-invalida');
+
+    expect(res.status).toBe(400);
+
+    const body = JSON.parse(res.text);
+    expect(body.message).toBe('Filtros inválidos');
+    expect(body.errors.length).toBeGreaterThanOrEqual(1);
+
+    const warnLog = logs().find(
+      (l) => l.layer === 'api' && l.operation === 'export_csv',
+    );
+
+    expect(warnLog).toMatchObject({
+      layer: 'api',
+      client: 'cli',
+      level: 'WARN',
+      status: 'error',
+    });
+  });
+
+  it('exporta todos os registros em CSV com headers e logs correlacionados', async () => {
+    const res = await exportCsv();
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="tarefas.csv"',
+    );
+
+    expect(res.text).toContain(
+      'id,title,description,category,priority,due_date,created_at,updated_at',
+    );
+    expect(res.text).toContain('LupaAlfa um');
+
+    const requestId = res.headers['x-request-id'];
+
+    const apiLog = logs().find(
+      (l) => l.layer === 'api' && l.operation === 'export_csv',
+    );
+
+    const dbLog = logs().find(
+      (l) => l.layer === 'db' && l.operation === 'export_csv',
+    );
+
+    expect(apiLog).toMatchObject({
+      layer: 'api',
+      client: 'cli',
+      operation: 'export_csv',
+      status: 'success',
+      request_id: requestId,
+    });
+
+    expect(dbLog).toMatchObject({
+      layer: 'db',
+      client: 'cli',
+      operation: 'export_csv',
+      status: 'success',
+      request_id: requestId,
+    });
+  });
+
+  it('exporta somente os registros correspondentes aos filtros', async () => {
+    const res = await exportCsv('?q=LupaAlfa&category=Estudo');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('LupaAlfa um');
+    expect(res.text).not.toContain('LupaAlfa dois');
+    expect(res.text).not.toContain('Cem por cento');
   });
 });
