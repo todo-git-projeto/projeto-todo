@@ -553,6 +553,80 @@ docker compose logs --no-log-prefix app | grep '"operation":"search_records"' | 
 
 Filtros inválidos geram `WARN` na camada `api` e retornam HTTP 400. Tokens nunca são registrados nos logs.
 
+## Issue #6 — Dashboard de Indicadores (Web)
+
+O Dashboard fornece uma visualização agregada e em tempo real do estado das tarefas no sistema To-Do, consumindo métricas computadas diretamente no banco SQLite através da API REST.
+
+### Indicadores e Gráficos
+
+O Dashboard apresenta 3 indicadores visuais com dados reais:
+
+1. **Cumprimento de Prazo (Status de Entrega)**:
+   - **Em dia / No prazo**: Tarefas cuja data de entrega (`due_date`) é igual ou posterior ao dia de hoje (ou tarefas sem prazo de vencimento definido).
+   - **Atrasadas**: Tarefas cuja data limite (`due_date`) é anterior à data de hoje (`YYYY-MM-DD`).
+   - Mostra o total de tarefas e as barras proporcionais com contagem e percentual.
+
+2. **Distribuição por Prioridade**:
+   - Quantidade e proporção de tarefas classificadas em **Alta**, **Média** e **Baixa** prioridade.
+   - Permite identificar gargalos de tarefas críticas no fluxo de trabalho.
+
+3. **Distribuição por Categoria**:
+   - Quantidade e proporção de tarefas agrupadas por cada categoria existente cadastrada no banco.
+   - Permite visualizar o equilíbrio de tarefas entre diferentes áreas (ex: Trabalho, Estudos, Pessoal).
+
+### Atualização dos Indicadores
+
+Os valores do dashboard são mantidos sincronizados através de:
+- Carregamento automático ao entrar na tela inicial da aplicação web.
+- Botão interativo **🔄 Recarregar**, que efetua uma nova chamada ao endpoint `GET /api/web/dashboard`.
+- Atualização reativa sempre que uma tarefa for adicionada, editada ou excluída na interface.
+
+### Endpoint da API
+
+| Método | Rota | Autenticação | Resposta de Sucesso | Erros |
+|---|---|---|---|---|
+| `GET` | `/api/web/dashboard` | Bearer token (`aud: "web"`) | `200 OK` com payload JSON contendo `total`, `byStatus`, `byPriority` e `byCategory` | `401 Unauthorized` se o token estiver ausente, expirado ou for destinado a outro cliente |
+
+#### Exemplo de Resposta JSON:
+
+```json
+{
+  "total": 5,
+  "byStatus": {
+    "em_dia": 4,
+    "atrasada": 1
+  },
+  "byPriority": {
+    "baixa": 1,
+    "media": 2,
+    "alta": 2
+  },
+  "byCategory": [
+    { "category": "Trabalho", "count": 3 },
+    { "category": "Estudos", "count": 2 }
+  ]
+}
+```
+
+#### Exemplo de Chamada via cURL:
+
+```bash
+# Obter métricas do dashboard via Web API
+curl -X GET http://localhost:3000/api/web/dashboard \
+  -H "Authorization: Bearer $WEB_TOKEN"
+```
+
+### Logs Estruturados e Correlação
+
+A consulta ao dashboard gera logs estruturados no padrão JSON em stdout com correlação de `request_id` entre as camadas `api` e `db`:
+
+```json
+{"timestamp":"2026-11-16T01:00:00.000Z","level":"INFO","layer":"db","client":"web","operation":"dashboard_stats","status":"success","request_id":"c6f3e1b0-...","message":"Estatísticas do dashboard recuperadas com sucesso"}
+{"timestamp":"2026-11-16T01:00:00.005Z","level":"INFO","layer":"api","client":"web","operation":"dashboard_stats","status":"success","request_id":"c6f3e1b0-...","message":"Dashboard carregado com 5 registros"}
+```
+
+---
+
 ## Logs e Correlação
 
 Cada operação gera **uma linha JSON por evento** no stdout, uma na camada `api` e outra na camada `db` (quando acessa o banco), com o **mesmo `request_id`**:

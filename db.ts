@@ -50,6 +50,14 @@ export interface RecordFilters {
 /** Colunas permitidas na ordenação da listagem da CLI (issue #9). */
 export const RECORD_SORT_FIELDS = ['id', 'title', 'category', 'priority', 'due_date', 'created_at'] as const;
 
+
+export interface DashboardStats {
+  total: number;
+  byStatus: { em_dia: number; atrasada: number };
+  byPriority: { baixa: number; media: number; alta: number };
+  byCategory: { category: string; count: number }[];
+}
+
 export interface PaginatedRecords {
   items: RecordRow[];
   total: number;
@@ -521,6 +529,70 @@ export class Db {
     });
 
     return items;
+  }
+
+
+  /**
+   * Issue #6: estatísticas reais do banco para o dashboard da Web (GET /api/web/dashboard).
+   * 3 indicadores/gráficos:
+   * 1. Status do prazo (em dia / no prazo vs atrasada);
+   * 2. Distribuição por prioridade (baixa, media, alta);
+   * 3. Distribuição por categoria.
+   */
+  getDashboardStats(requestId: string, client: 'web' | 'cli' = 'web'): DashboardStats {
+    const now = new Date();
+    // Usa data local para evitar falso atraso em fusos horarios negativos (ex: America/Sao_Paulo UTC-3)
+    const today = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, '0'),
+      String(now.getDate()).padStart(2, '0'),
+    ].join('-');
+
+    const { total } = this.conn.prepare('SELECT COUNT(*) AS total FROM records').get() as { total: number };
+
+    // Gráfico 1: Prazo/Status (atrasadas com due_date < hoje vs em dia)
+    const { overdue } = this.conn
+      .prepare('SELECT COUNT(*) AS overdue FROM records WHERE due_date IS NOT NULL AND due_date < ?')
+      .get(today) as { overdue: number };
+    const emDia = total - overdue;
+
+    // Gráfico 2: Prioridade
+    const priorityRows = this.conn
+      .prepare('SELECT priority, COUNT(*) AS count FROM records GROUP BY priority')
+      .all() as { priority: string; count: number }[];
+    const byPriority = { baixa: 0, media: 0, alta: 0 };
+    for (const r of priorityRows) {
+      if (r.priority in byPriority) {
+        byPriority[r.priority as keyof typeof byPriority] = r.count;
+      }
+    }
+
+    // Gráfico 3: Categoria
+    const byCategory = this.conn
+      .prepare('SELECT category, COUNT(*) AS count FROM records GROUP BY category ORDER BY count DESC, category ASC')
+      .all() as { category: string; count: number }[];
+
+    const stats: DashboardStats = {
+      total,
+      byStatus: {
+        em_dia: emDia,
+        atrasada: overdue,
+      },
+      byPriority,
+      byCategory,
+    };
+
+    logEvent({
+      level: 'INFO',
+      layer: 'db',
+      client,
+      operation: 'dashboard_stats',
+      status: 'success',
+      request_id: requestId,
+      message: `Estatísticas do dashboard calculadas: ${total} tarefa(s) total`,
+    });
+
+    return stats;
   }
 
   close(): void {

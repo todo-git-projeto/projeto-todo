@@ -143,6 +143,78 @@
     .filters-header h2 { margin: 0; }
     .table-title { font-weight: 600; color: #0f172a; }
     .table-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+    /* Dashboard Issue #6 */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 16px;
+    }
+    @media (max-width: 768px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .metric-card {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    .metric-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .metric-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1;
+      margin-bottom: 12px;
+    }
+    .bar-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .bar-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: #475569;
+    }
+    .progress-track {
+      background: #e2e8f0;
+      border-radius: 9999px;
+      height: 8px;
+      overflow: hidden;
+      width: 100%;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.3s ease;
+    }
+    .fill-green { background: #22c55e; }
+    .fill-red { background: #ef4444; }
+    .fill-blue { background: #3b82f6; }
+    .fill-amber { background: #f59e0b; }
+    .fill-purple { background: #8b5cf6; }
   </style>
 </head>
 <body>
@@ -724,6 +796,183 @@
       );
     }
 
+
+    function DashboardSection({ token, refreshTrigger }) {
+      const [stats, setStats] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState(null);
+
+      async function fetchDashboard() {
+        setLoading(true);
+        setError(null);
+        try {
+          const res = await fetch('/api/web/dashboard', {
+            headers: { Authorization: 'Bearer ' + token }
+          });
+          if (!res.ok) throw new Error('Falha ao carregar métricas');
+          const data = await res.json();
+          setStats(data);
+        } catch (err) {
+          setError(err.message || 'Erro ao carregar dashboard');
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      useEffect(() => {
+        fetchDashboard();
+      }, [token, refreshTrigger]);
+
+      if (error) {
+        return (
+          <div className="card">
+            <div className="alert alert-danger">
+              <span>{error}</span>
+              <button className="secondary small" onClick={fetchDashboard}>Tentar novamente</button>
+            </div>
+          </div>
+        );
+      }
+
+      const total = stats ? stats.total : 0;
+      const emDia = stats ? (stats.byStatus ? stats.byStatus.em_dia : 0) : 0;
+      const atrasadas = stats ? (stats.byStatus ? stats.byStatus.atrasada : 0) : 0;
+      const percEmDia = total > 0 ? Math.round((emDia / total) * 100) : 0;
+      const percAtrasadas = total > 0 ? Math.round((atrasadas / total) * 100) : 0;
+
+      const baixa = stats ? (stats.byPriority ? stats.byPriority.baixa : 0) : 0;
+      const media = stats ? (stats.byPriority ? stats.byPriority.media : 0) : 0;
+      const alta = stats ? (stats.byPriority ? stats.byPriority.alta : 0) : 0;
+      const percBaixa = total > 0 ? Math.round((baixa / total) * 100) : 0;
+      const percMedia = total > 0 ? Math.round((media / total) * 100) : 0;
+      const percAlta = total > 0 ? Math.round((alta / total) * 100) : 0;
+
+      const categories = (stats && stats.byCategory) ? stats.byCategory : [];
+
+      return (
+        <div className="card" id="dashboard-section">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div>
+              <h2>📊 Dashboard de Indicadores</h2>
+              <div className="subtitle" style={{ margin: 0 }}>
+                Visualização de métricas e status em tempo real sincronizados via API.
+              </div>
+            </div>
+            <button
+              type="button"
+              className="secondary small"
+              onClick={fetchDashboard}
+              disabled={loading}
+              title="Recarregar métricas do dashboard"
+            >
+              {loading ? '🔄 Atualizando...' : '🔄 Recarregar'}
+            </button>
+          </div>
+
+          <div className="dashboard-grid">
+            {/* Gráfico / Indicador 1: Status de Cumprimento de Prazos */}
+            <div className="metric-card">
+              <div className="metric-title">
+                <span>1. Cumprimento de Prazo</span>
+                <span>📅</span>
+              </div>
+              <div className="metric-value">{total} <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--muted)' }}>total</span></div>
+              <div className="bar-group">
+                <div className="bar-item">
+                  <div className="bar-label">
+                    <span>Em dia / No prazo</span>
+                    <strong>{emDia} ({percEmDia}%)</strong>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill fill-green" style={{ width: percEmDia + '%' }}></div>
+                  </div>
+                </div>
+                <div className="bar-item">
+                  <div className="bar-label">
+                    <span>Atrasadas</span>
+                    <strong>{atrasadas} ({percAtrasadas}%)</strong>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill fill-red" style={{ width: percAtrasadas + '%' }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Gráfico / Indicador 2: Distribuição por Prioridade */}
+            <div className="metric-card">
+              <div className="metric-title">
+                <span>2. Por Prioridade</span>
+                <span>🎯</span>
+              </div>
+              <div className="metric-value">
+                {alta} <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--danger-text)' }}>alta(s)</span>
+              </div>
+              <div className="bar-group">
+                <div className="bar-item">
+                  <div className="bar-label">
+                    <span>Alta</span>
+                    <strong>{alta} ({percAlta}%)</strong>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill fill-red" style={{ width: percAlta + '%' }}></div>
+                  </div>
+                </div>
+                <div className="bar-item">
+                  <div className="bar-label">
+                    <span>Média</span>
+                    <strong>{media} ({percMedia}%)</strong>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill fill-amber" style={{ width: percMedia + '%' }}></div>
+                  </div>
+                </div>
+                <div className="bar-item">
+                  <div className="bar-label">
+                    <span>Baixa</span>
+                    <strong>{baixa} ({percBaixa}%)</strong>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill fill-blue" style={{ width: percBaixa + '%' }}></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Gráfico / Indicador 3: Distribuição por Categoria */}
+            <div className="metric-card">
+              <div className="metric-title">
+                <span>3. Por Categoria</span>
+                <span>🏷️</span>
+              </div>
+              <div className="metric-value">{categories.length} <span style={{ fontSize: '0.9rem', fontWeight: 500, color: 'var(--muted)' }}>categoria(s)</span></div>
+              <div className="bar-group">
+                {categories.length === 0 ? (
+                  <span style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>Nenhuma categoria cadastrada.</span>
+                ) : (
+                  categories.slice(0, 4).map((cat, idx) => {
+                    const perc = total > 0 ? Math.round((cat.count / total) * 100) : 0;
+                    const colors = ['fill-purple', 'fill-blue', 'fill-green', 'fill-amber'];
+                    return (
+                      <div className="bar-item" key={cat.category}>
+                        <div className="bar-label">
+                          <span>{cat.category}</span>
+                          <strong>{cat.count} ({perc}%)</strong>
+                        </div>
+                        <div className="progress-track">
+                          <div className={"progress-fill " + colors[idx % colors.length]} style={{ width: perc + '%' }}></div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     function MainApp({ username, token, onLogout }) {
       const [records, setRecords] = useState([]);
       const [total, setTotal] = useState(0);
@@ -740,6 +989,8 @@
       const [applied, setApplied] = useState(EMPTY_FILTERS);
       const [searchError, setSearchError] = useState('');
       const latestRequest = useRef(0);
+      const [dashKey, setDashKey] = useState(0);
+      function refreshDashboard() { setDashKey(k => k + 1); }
 
       // Dados carregados do banco SQLite. Sem filtros usa a listagem; com filtros, a busca assíncrona.
       async function fetchRecords(p = page, s = sort, o = order, f = applied) {
@@ -823,6 +1074,7 @@
           if (res.ok) {
             setFeedback(`Tarefa #${id} excluída com sucesso!`);
             fetchRecords();
+            refreshDashboard();
           } else {
             alert('Não foi possível excluir a tarefa.');
           }
@@ -840,6 +1092,7 @@
         }
         setFeedback(`${ids.length} tarefa(s) excluída(s) com sucesso!`);
         fetchRecords();
+        refreshDashboard();
       }
 
       
@@ -880,6 +1133,7 @@
       function handleSaved() {
         setEditingRecord(null);
         fetchRecords();
+        refreshDashboard();
       }
 
       return (
@@ -908,6 +1162,8 @@
             onCancel={() => setEditingRecord(null)}
             token={token}
           />
+
+          <DashboardSection token={token} refreshTrigger={dashKey} />
 
           <SearchFilters
             filters={draft}

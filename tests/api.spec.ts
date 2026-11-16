@@ -1506,3 +1506,57 @@ describe('CLI (issue #9): DELETE /api/cli/records/:id (Exclusão)', () => {
     expect((await remove(id)).status).toBe(404);
   });
 });
+
+
+describe('GET /api/web/dashboard', () => {
+  it('exige autenticação Web e rejeita requisição sem token ou com token de outro público', async () => {
+    const unauth = await request(app.getHttpServer()).get('/api/web/dashboard');
+    expect(unauth.status).toBe(401);
+
+    const cliToken = auth.sign('admin', 3600, 'cli');
+    const wrongAud = await request(app.getHttpServer())
+      .get('/api/web/dashboard')
+      .set('Authorization', `Bearer ${cliToken}`);
+    expect(wrongAud.status).toBe(401);
+  });
+
+  it('retorna os indicadores do banco com sucesso e correlaciona os logs com request_id', async () => {
+    written = [];
+    const res = await request(app.getHttpServer())
+      .get('/api/web/dashboard')
+      .set('Authorization', `Bearer ${validToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('total');
+    expect(res.body).toHaveProperty('byStatus');
+    expect(res.body).toHaveProperty('byPriority');
+    expect(res.body).toHaveProperty('byCategory');
+    expect(typeof res.body.total).toBe('number');
+    expect(typeof res.body.byStatus.em_dia).toBe('number');
+    expect(typeof res.body.byStatus.atrasada).toBe('number');
+
+    const requestId = res.headers['x-request-id'];
+    expect(requestId).toBeTruthy();
+
+    const dbLog = logs().find((l) => l.layer === 'db' && l.operation === 'dashboard_stats');
+    expect(dbLog).toMatchObject({
+      level: 'INFO',
+      layer: 'db',
+      client: 'web',
+      operation: 'dashboard_stats',
+      status: 'success',
+      request_id: requestId,
+    });
+
+    const apiLog = logs().find((l) => l.layer === 'api' && l.operation === 'dashboard_stats');
+    expect(apiLog).toMatchObject({
+      level: 'INFO',
+      layer: 'api',
+      client: 'web',
+      operation: 'dashboard_stats',
+      status: 'success',
+      request_id: requestId,
+    });
+    expect(written.join('')).not.toContain(validToken);
+  });
+});

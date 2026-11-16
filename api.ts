@@ -37,6 +37,7 @@ import {
   logEvent,
   PaginatedRecords,
   RECORD_SORT_FIELDS,
+  DashboardStats,
   RecordFilters,
   RecordInput,
   RecordRow,
@@ -540,6 +541,25 @@ export class WebController {
       `Exportação CSV gerada com ${records.length} registro(s)`,
     );
     return csv;
+  }
+
+
+  /**
+   * Issue #6: Dashboard com dados reais agregados do banco via API (GET /api/web/dashboard).
+   * Retorna os dados para os 3 gráficos: status de prazo, prioridades e categorias.
+   */
+  @Get('dashboard')
+  @UseGuards(AuthGuard)
+  getDashboard(@Req() req: WebRequest): DashboardStats {
+    const stats = this.db.getDashboardStats(req.requestId, 'web');
+    apiLog(
+      req.requestId,
+      'INFO',
+      'dashboard_stats',
+      'success',
+      `Dashboard carregado com ${stats.total} registros`,
+    );
+    return stats;
   }
 
   /** Consulta de registro específico por id (suporte ao formulário de edição). */

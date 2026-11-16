@@ -637,3 +637,53 @@ describe('Db - exportRecordsCsv (issue #5)', () => {
     db.close();
   });
 });
+
+
+describe('Db.getDashboardStats', () => {
+  it('retorna contagens vazias quando não há tarefas', () => {
+    const db = new Db(':memory:');
+    const stats = db.getDashboardStats('req-dash-empty', 'web');
+    expect(stats).toEqual({
+      total: 0,
+      byStatus: { em_dia: 0, atrasada: 0 },
+      byPriority: { baixa: 0, media: 0, alta: 0 },
+      byCategory: [],
+    });
+    expect(logs()[0]).toMatchObject({
+      level: 'INFO',
+      layer: 'db',
+      client: 'web',
+      operation: 'dashboard_stats',
+      status: 'success',
+      request_id: 'req-dash-empty',
+    });
+    db.close();
+  });
+
+  it('computa tarefas em dia, atrasadas e agrupamentos por prioridade e categoria', () => {
+    const db = new Db(':memory:');
+    // Inserir registros com datas passadas, futuras e sem prazo
+    db.createRecord({ title: 'Atrasada', description: 'desc', category: 'Trabalho', priority: 'alta', due_date: '2020-01-01' }, 'req-1', 'web');
+    db.createRecord({ title: 'Em dia com prazo', description: 'desc', category: 'Trabalho', priority: 'media', due_date: '2099-12-31' }, 'req-2', 'web');
+    db.createRecord({ title: 'Sem prazo', description: 'desc', category: 'Pessoal', priority: 'baixa', due_date: null }, 'req-3', 'web');
+
+    written = [];
+    const stats = db.getDashboardStats('req-dash-stats', 'web');
+
+    expect(stats.total).toBe(3);
+    expect(stats.byStatus).toEqual({
+      em_dia: 2,
+      atrasada: 1,
+    });
+    expect(stats.byPriority).toEqual({
+      baixa: 1,
+      media: 1,
+      alta: 1,
+    });
+    expect(stats.byCategory).toEqual([
+      { category: 'Trabalho', count: 2 },
+      { category: 'Pessoal', count: 1 },
+    ]);
+    db.close();
+  });
+});
