@@ -639,6 +639,72 @@ describe('Db - exportRecordsCsv (issue #5)', () => {
 });
 
 
+describe('Db - exportCliRecords (issue #11)', () => {
+  function seeded(): Db {
+    const db = new Db(':memory:');
+    const base = { description: 'Descrição básica' };
+
+    db.createRecord({ ...base, title: 'Tarefa Alfa', category: 'Trabalho', priority: 'alta', due_date: '2026-12-05' }, 'c1', 'cli');
+    db.createRecord({ ...base, title: 'Tarefa Beta', category: 'Estudo', priority: 'media', due_date: '2026-12-20' }, 'c2', 'cli');
+    db.createRecord({ ...base, title: 'Tarefa Gama', category: 'Estudo', priority: 'alta', due_date: null }, 'c3', 'cli');
+    db.createRecord({ ...base, title: 'Tarefa Delta 100%', category: 'Geral', priority: 'baixa' }, 'c4', 'cli');
+
+    written = [];
+    return db;
+  }
+
+  it('exporta todos os registros sem paginação e registra log exclusivo da CLI', () => {
+    const db = seeded();
+
+    const records = db.exportCliRecords({}, 'req-cli-export-1');
+
+    expect(records).toHaveLength(4);
+    expect(records.map((r) => r.title)).toEqual([
+      'Tarefa Alfa',
+      'Tarefa Beta',
+      'Tarefa Gama',
+      'Tarefa Delta 100%',
+    ]);
+
+    expect(logs()[0]).toMatchObject({
+      level: 'INFO',
+      layer: 'db',
+      client: 'cli',
+      operation: 'export_cli_records',
+      status: 'success',
+      request_id: 'req-cli-export-1',
+    });
+    expect(logs()[0].message).toContain('4 registro(s) exportado(s) para CSV (filtros: nenhum)');
+
+    db.close();
+  });
+
+  it('aplica filtros combinados e filtros de vencimento na exportação CLI', () => {
+    const db = seeded();
+
+    const combined = db.exportCliRecords({
+      q: 'Tarefa',
+      category: 'Estudo',
+      priority: 'alta',
+    }, 'req-cli-export-2');
+
+    expect(combined.map((r) => r.title)).toEqual(['Tarefa Gama']);
+
+    const dates = db.exportCliRecords({
+      due_from: '2026-12-01',
+      due_to: '2026-12-10',
+    }, 'req-cli-export-3');
+
+    expect(dates.map((r) => r.title)).toEqual(['Tarefa Alfa']);
+
+    const percent = db.exportCliRecords({ q: '100%' }, 'req-cli-export-4');
+    expect(percent.map((r) => r.title)).toEqual(['Tarefa Delta 100%']);
+
+    db.close();
+  });
+});
+
+
 describe('Db.getDashboardStats', () => {
   it('retorna contagens vazias quando não há tarefas', () => {
     const db = new Db(':memory:');

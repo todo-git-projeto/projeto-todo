@@ -1069,7 +1069,6 @@ describe('GET /api/web/records/export (exportação CSV - issue #5)', () => {
     const requestId = res.headers['x-request-id'];
     const apiLog = logs().find((l) => l.layer === 'api' && l.operation === 'export_csv');
     const dbLog = logs().find((l) => l.layer === 'db' && l.operation === 'export_csv');
-
     expect(apiLog).toMatchObject({
       layer: 'api',
       client: 'web',
@@ -1635,7 +1634,7 @@ describe('CLI (issue #11): GET /api/cli/records/export (Exportação CSV)', () =
     );
 
     const dbLog = logs().find(
-      (l) => l.layer === 'db' && l.operation === 'export_csv',
+      (l) => l.layer === 'db' && l.operation === 'export_cli_records',
     );
 
     expect(apiLog).toMatchObject({
@@ -1649,7 +1648,7 @@ describe('CLI (issue #11): GET /api/cli/records/export (Exportação CSV)', () =
     expect(dbLog).toMatchObject({
       layer: 'db',
       client: 'cli',
-      operation: 'export_csv',
+      operation: 'export_cli_records',
       status: 'success',
       request_id: requestId,
     });

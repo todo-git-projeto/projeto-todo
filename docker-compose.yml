@@ -31,7 +31,8 @@ services:
       CLI_USER: ${APP_USER:-admin}
       CLI_PASSWORD: ${APP_PASSWORD:-admin123}
       TODO_TOKEN: ${TODO_TOKEN:-}
-
+    volumes:
+      - ./exports:/app/exports
   # Testes unitários + cobertura: docker compose run --rm test
   test:
     build: .

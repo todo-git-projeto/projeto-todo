@@ -812,10 +812,9 @@ export class CliController {
       });
     }
 
-    const records = this.db.exportRecordsCsv(
+    const records = this.db.exportCliRecords(
       validation.filters,
       req.requestId,
-      'cli',
     );
 
     const csv = formatRecordsCsv(records);

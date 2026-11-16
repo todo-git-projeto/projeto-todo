@@ -545,6 +545,70 @@ export class Db {
 
 
   /**
+   * Issue #11: exportação CSV exclusiva da CLI.
+   * Exporta todos os registros filtrados, sem limitar à paginação.
+   */
+  exportCliRecords(
+    filters: RecordFilters,
+    requestId: string,
+  ): RecordRow[] {
+    const conditions: string[] = [];
+    const params: string[] = [];
+    const applied: string[] = [];
+
+    if (filters.q) {
+      const like = `%${filters.q.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push("(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+      params.push(like, like);
+      applied.push('q');
+    }
+
+    if (filters.category) {
+      conditions.push('category = ? COLLATE NOCASE');
+      params.push(filters.category);
+      applied.push('category');
+    }
+
+    if (filters.priority) {
+      conditions.push('priority = ?');
+      params.push(filters.priority);
+      applied.push('priority');
+    }
+
+    if (filters.due_from) {
+      conditions.push('due_date >= ?');
+      params.push(filters.due_from);
+      applied.push('due_from');
+    }
+
+    if (filters.due_to) {
+      conditions.push('due_date <= ?');
+      params.push(filters.due_to);
+      applied.push('due_to');
+    }
+
+    const where = conditions.length > 0
+      ? `WHERE ${conditions.join(' AND ')}`
+      : '';
+
+    const items = this.conn
+      .prepare(`SELECT * FROM records ${where} ORDER BY id ASC`)
+      .all(...params) as RecordRow[];
+
+    logEvent({
+      level: 'INFO',
+      layer: 'db',
+      client: 'cli',
+      operation: 'export_cli_records',
+      status: 'success',
+      request_id: requestId,
+      message: `${items.length} registro(s) exportado(s) para CSV (filtros: ${applied.join(', ') || 'nenhum'})`,
+    });
+
+    return items;
+  }
+
+  /**
    * Issue #6: estatísticas reais do banco para o dashboard da Web (GET /api/web/dashboard).
    * 3 indicadores/gráficos:
    * 1. Status do prazo (em dia / no prazo vs atrasada);

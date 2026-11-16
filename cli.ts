@@ -88,7 +88,7 @@ Opções:
   --limit <n>              Tarefas por página, de 1 a 100 (padrão 5)
   --sort <campo>           Ordenação: id, title, category, priority, due_date ou created_at (padrão id)
   --order <asc|desc>        Direção da ordenação (padrão desc)
-  --output <arquivo>       Caminho do arquivo CSV (padrão tarefas.csv)
+  --output <arquivo>       Caminho do arquivo CSV (padrão /app/exports/tarefas.csv)
   -h, --help               Mostra esta ajuda
 
 Códigos de saída: 0 sucesso, 1 erro na API ou na conexão, 2 uso incorreto.`;
@@ -445,7 +445,7 @@ export async function run(
         }
 
         const csv = await response.text();
-        const outputPath = args.flags.output ?? 'tarefas.csv';
+        const outputPath = args.flags.output ?? '/app/exports/tarefas.csv';
 
         try {
           await writeFile(outputPath, csv, 'utf8');
