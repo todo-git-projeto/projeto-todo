@@ -155,6 +155,50 @@ curl -X POST http://localhost:3000/api/web/records \
 
 ---
 
+## Issue #3: Listagem e Exclusão de Tarefas (Web)
+
+Nesta etapa foi implementada a visualização das tarefas em tabela dinâmica e a funcionalidade de exclusão unitária e em lote, com carregamento direto do banco de dados SQLite ao abrir a página.
+
+### Recursos da Interface Web (`index.html`)
+
+- **Tabela com 4 campos visíveis principais:**
+  1. **Título:** nome da tarefa acompanhado da descrição.
+  2. **Categoria:** badge identificador da categoria (Trabalho, Estudo, Pessoal, etc.).
+  3. **Prioridade:** badge estilizado e colorido por nível (`baixa`, `media`, `alta`).
+  4. **Prazo:** data de vencimento formatada ou indicação de sem prazo.
+- **Paginação de 5 em 5 itens:** exibe 5 registros por página, com botões "Anterior", "Próxima", contador de páginas e total geral de tarefas.
+- **Ordenação dinâmica:** cabeçalhos da tabela clicáveis permitindo alternar entre ordenação crescente (▲) e decrescente (▼) por Título, Categoria, Prioridade, Prazo e ID.
+- **Seleção e Exclusão:**
+  - Checkbox de seleção por linha e checkbox "selecionar todos" no cabeçalho.
+  - Barra de ações com botão "Excluir Selecionadas" para remoção em lote.
+  - Botão individual "Excluir" por linha com confirmação antes da remoção.
+- **Carregamento inicial:** dados carregados automaticamente do banco ao autenticar ou abrir a página com sessão ativa.
+
+### Endpoints da Issue #3
+
+| Método | Rota | Autenticação | Descrição |
+|---|---|---|---|
+| GET | `/api/web/records?page=1&limit=5&sort=id&order=desc` | Bearer token | Retorna registros paginados (5 itens/pág) e ordenados |
+| DELETE | `/api/web/records/{id}` | Bearer token | Exclui uma tarefa do banco SQLite (HTTP 200; 404 se inexistente) |
+
+### Exemplos via cURL
+
+```bash
+# 1. Listar tarefas paginadas (página 1, 5 itens, ordenadas por título)
+curl -s "http://localhost:3000/api/web/records?page=1&limit=5&sort=title&order=asc" \
+  -H "Authorization: Bearer $TOKEN"
+
+# 2. Excluir uma tarefa por ID (DELETE /api/web/records/1)
+curl -s -X DELETE http://localhost:3000/api/web/records/1 \
+  -H "Authorization: Bearer $TOKEN"
+
+# 3. Tentativa de exclusão de ID inexistente (retorna HTTP 404)
+curl -s -X DELETE http://localhost:3000/api/web/records/99999 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
 ## Issue #7: Estrutura CLI (comandos, token Bearer e logs)
 
 A CLI (`cli.ts`) é um arquivo único que só conversa com a API por HTTP, nos endpoints próprios `/api/cli/*`. Ela **nunca** acessa o banco. Roda em contêiner, sem instalar nada no host.
