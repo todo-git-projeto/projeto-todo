@@ -1,3 +1,10 @@
+#Projeto To-Di List:
+Membros e Matrícula:
+
+2650380 - Luan Costa Rodrigues
+2650095 - Jhully Emilly Aires de Oliveira
+2650519 - Patrick Kauã Firmino Pinheiro
+
 # To-Do List (Web + CLI)
 
 Projeto da avaliação prática de Git e GitHub. Lista de tarefas com Web (React), API (NestJS) e banco (SQLite), tudo rodando exclusivamente por **Docker Compose**.
