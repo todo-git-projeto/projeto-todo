@@ -736,22 +736,54 @@ Roda o Jest dentro do contêiner e afere a cobertura. A execução **exige 100% 
 ## Estrutura de Apoio
 
 `Dockerfile`, `docker-compose.yml`, `package.json`, `tsconfig.json`, `jest.config.js`, `tests/*.spec.ts`, `.gitignore`, `.dockerignore`, `.env.example` e `.github/PULL_REQUEST_TEMPLATE.md` são arquivos auxiliares (infraestrutura, configuração, testes e template de PR).
+ ## Issue #11: Exportação CSV via CLI
 
-## Issue #11: Exportação CSV via CLI
+A CLI permite exportar tarefas para um arquivo CSV por meio da API REST, utilizando autenticação Bearer Token e os filtros avançados da busca.
 
-A CLI permite exportar tarefas para um arquivo CSV diretamente pela API REST, utilizando autenticação Bearer Token e os filtros avançados da busca.
+### Como funciona o armazenamento
+
+O serviço `cli` possui um volume configurado no Docker Compose:
+
+```yaml
+volumes:
+  - ./exports:/app/exports
+```
+
+Isso permite que os arquivos gerados dentro do contêiner permaneçam disponíveis no computador host, mesmo após a remoção do contêiner (`--rm`).
+
+- **Caminho padrão no contêiner:** `/app/exports/tarefas.csv`
+- **Caminho no Windows:** `.\exports\tarefas.csv`
+- **Caminho no Linux/macOS:** `./exports/tarefas.csv`
+
+A pasta `exports` fica na raiz do projeto.
+
+### Autenticação
+
+A exportação exige um token Bearer da CLI. Primeiro, obtenha o token:
+
+```bash
+docker compose --profile cli run --rm -T cli token
+```
+
+Copie o token retornado e utilize-o na exportação:
+
+```bash
+docker compose --profile cli run --rm cli export --token SEU_TOKEN
+```
+
+A CLI não realiza login automaticamente durante a exportação. Sem token válido, a API retorna HTTP 401.
 
 ### Comando
 
 ```bash
-docker compose run --rm cli export [opções]
+docker compose --profile cli run --rm cli export [opções]
 ```
 
 ### Opções disponíveis
 
 | Opção | Descrição |
 |---|---|
-| `--output <arquivo>` | Caminho do arquivo CSV (padrão: `tarefas.csv`) |
+| `--output <arquivo>` | Caminho do arquivo CSV dentro do contêiner (padrão: `/app/exports/tarefas.csv`) |
 | `--q <texto>` | Busca textual |
 | `--category <categoria>` | Filtra por categoria |
 | `--priority <prioridade>` | Filtra por prioridade |
@@ -761,35 +793,41 @@ docker compose run --rm cli export [opções]
 
 Os filtros podem ser combinados na mesma exportação.
 
+**Importante:** para que o arquivo fique disponível no host, utilize caminhos dentro de `/app/exports` ao personalizar o destino com `--output`.
+
 ### Exemplos
 
 ```bash
 # Exportar todas as tarefas
-docker compose run --rm cli export
+docker compose --profile cli run --rm cli export --token SEU_TOKEN
 
 # Exportar para um caminho personalizado
-docker compose run --rm cli export --output tarefas.csv
+docker compose --profile cli run --rm cli export \
+  --output /app/exports/tarefas_personalizado.csv \
+  --token SEU_TOKEN
 
 # Exportar tarefas filtradas
-docker compose run --rm cli export \
+docker compose --profile cli run --rm cli export \
   --category Estudo \
   --priority alta \
-  --output tarefas_estudo.csv
+  --output /app/exports/tarefas_estudo.csv \
+  --token SEU_TOKEN
 
 # Exportar utilizando busca textual e intervalo de vencimento
-docker compose run --rm cli export \
+docker compose --profile cli run --rm cli export \
   --q projeto \
   --due-from 2026-01-01 \
-  --due-to 2026-12-31
+  --due-to 2026-12-31 \
+  --token SEU_TOKEN
 ```
 
 ### Endpoint utilizado
 
 `GET /api/cli/records/export`
 
-- Autenticação obrigatória por Bearer Token.
+- Autenticação obrigatória por Bearer Token da CLI.
 - Exporta todos os registros correspondentes aos filtros, sem limitação de paginação.
-- Reutiliza o formato CSV da exportação Web, mantendo as mesmas colunas.
-- Registra logs estruturados com `request_id` e identificação do cliente `cli`.
+- Utiliza consulta e registro de log próprios da CLI (`exportCliRecords` e `export_cli_records`).
+- Mantém o formato CSV e as mesmas colunas da exportação Web.
 - Retorna HTTP 401 para falhas de autenticação e HTTP 400 para filtros inválidos.
-- A CLI salva a resposta no caminho informado por `--output` ou em `tarefas.csv` por padrão.
+- Salva o arquivo no caminho informado por `--output` ou em `/app/exports/tarefas.csv` por padrão.
