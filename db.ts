@@ -38,6 +38,14 @@ export interface RecordInput {
   due_date?: string | null;
 }
 
+export interface PaginatedRecords {
+  items: RecordRow[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 /** Escreve um evento de log: uma linha JSON no stdout (visível em `docker compose logs`). */
 export function logEvent(event: LogEvent): void {
   process.stdout.write(JSON.stringify({ timestamp: new Date().toISOString(), ...event }) + '\n');
@@ -215,6 +223,35 @@ export class Db {
     return updated;
   }
 
+  /** Issue #3: Exclui um registro do SQLite e registra o log na camada db. */
+  deleteRecord(id: number, requestId: string, client: 'web' | 'cli'): boolean {
+    const existing = this.conn.prepare('SELECT id FROM records WHERE id = ?').get(id);
+    if (!existing) {
+      logEvent({
+        level: 'WARN',
+        layer: 'db',
+        client,
+        operation: 'delete_record',
+        status: 'error',
+        request_id: requestId,
+        message: `Registro ${id} não encontrado para exclusão`,
+      });
+      return false;
+    }
+
+    this.conn.prepare('DELETE FROM records WHERE id = ?').run(id);
+    logEvent({
+      level: 'INFO',
+      layer: 'db',
+      client,
+      operation: 'delete_record',
+      status: 'success',
+      request_id: requestId,
+      message: `Registro ${id} excluído com sucesso`,
+    });
+    return true;
+  }
+
   /** Busca um registro pelo id. */
   findRecordById(id: number, requestId: string, client: 'web' | 'cli'): RecordRow | undefined {
     const row = this.conn.prepare('SELECT * FROM records WHERE id = ?').get(id) as RecordRow | undefined;
@@ -243,6 +280,47 @@ export class Db {
       message: `${rows.length} registro(s) retornado(s)`,
     });
     return rows;
+  }
+
+  /** Issue #3: Listagem paginada e ordenada com 5 itens por página para a Web. */
+  listRecordsPaginated(
+    options: { page?: number; limit?: number; sort?: string; order?: string },
+    requestId: string,
+    client: 'web' | 'cli',
+  ): PaginatedRecords {
+    const validSortFields = ['id', 'title', 'category', 'priority', 'due_date', 'created_at'];
+    const sort = options.sort && validSortFields.includes(options.sort) ? options.sort : 'id';
+    const order = options.order && options.order.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const page = Math.max(1, Math.floor(Number(options.page) || 1));
+    const limit = Math.max(1, Math.min(100, Math.floor(Number(options.limit) || 5)));
+    const offset = (page - 1) * limit;
+
+    const totalRow = this.conn.prepare('SELECT COUNT(*) as count FROM records').get() as { count: number };
+    const total = totalRow ? totalRow.count : 0;
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    const items = this.conn
+      .prepare(`SELECT * FROM records ORDER BY ${sort} ${order} LIMIT ? OFFSET ?`)
+      .all(limit, offset) as RecordRow[];
+
+    logEvent({
+      level: 'INFO',
+      layer: 'db',
+      client,
+      operation: 'list_records_paginated',
+      status: 'success',
+      request_id: requestId,
+      message: `${items.length} registro(s) listado(s) (página ${page} de ${totalPages})`,
+    });
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+      totalPages,
+    };
   }
 
   close(): void {

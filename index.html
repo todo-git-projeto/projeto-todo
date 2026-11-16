@@ -20,10 +20,10 @@
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       padding: 24px 16px; display: flex; justify-content: center;
     }
-    .container { width: 100%; max-width: 800px; margin: 0 auto; }
+    .container { width: 100%; max-width: 900px; margin: 0 auto; }
     .card {
       background: var(--card); border: 1px solid var(--border);
-      border-radius: 16px; padding: 28px; box-shadow: 0 10px 25px rgba(15, 23, 42, .06);
+      border-radius: 16px; padding: 24px; box-shadow: 0 10px 25px rgba(15, 23, 42, .06);
       margin-bottom: 24px;
     }
     .auth-card { max-width: 420px; margin: 60px auto 0; }
@@ -62,18 +62,20 @@
 
     .button-group { display: flex; gap: 12px; margin-top: 20px; }
     button {
-      padding: 10px 18px; font-size: .95rem; font-weight: 600; color: #fff;
+      padding: 9px 16px; font-size: .9rem; font-weight: 600; color: #fff;
       background: var(--primary); border: 0; border-radius: 8px; cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       transition: background .15s;
     }
     button:hover { background: var(--primary-dark); }
-    button:disabled { opacity: .6; cursor: not-allowed; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
     button.secondary {
       background: transparent; color: var(--muted); border: 1px solid var(--border);
     }
     button.secondary:hover { background: #f1f5f9; color: var(--text); }
-    button.small { padding: 6px 12px; font-size: .85rem; }
+    button.danger { background: #dc2626; color: #fff; }
+    button.danger:hover { background: #b91c1c; }
+    button.small { padding: 5px 10px; font-size: .8rem; border-radius: 6px; }
 
     .alert {
       padding: 12px 16px; border-radius: 8px; margin-bottom: 18px; font-size: .9rem;
@@ -95,19 +97,39 @@
     .badge-baixa { background: var(--badge-baixa); color: var(--badge-baixa-text); }
     .badge-cat { background: #f1f5f9; color: #475569; }
 
-    .record-card {
-      background: #fff; border: 1px solid var(--border); border-radius: 12px;
-      padding: 18px; margin-bottom: 12px; display: flex; justify-content: space-between;
-      align-items: flex-start; gap: 16px; transition: border-color .15s;
+    /* Estilos da Tabela da Issue #3 */
+    .table-container { width: 100%; overflow-x: auto; margin-top: 12px; }
+    table {
+      width: 100%; border-collapse: collapse; text-align: left; font-size: .9rem;
     }
-    .record-card:hover { border-color: #cbd5e1; }
-    .record-title { margin: 0 0 6px; font-size: 1.05rem; font-weight: 600; }
-    .record-desc { margin: 0 0 10px; color: #475569; font-size: .9rem; line-height: 1.4; }
-    .record-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); }
+    th {
+      background: #f8fafc; padding: 12px 10px; font-weight: 600; color: #475569;
+      border-bottom: 2px solid var(--border); user-select: none;
+    }
+    th.sortable { cursor: pointer; transition: background .15s; }
+    th.sortable:hover { background: #f1f5f9; color: var(--primary); }
+    td {
+      padding: 12px 10px; border-bottom: 1px solid var(--border); vertical-align: middle;
+    }
+    tr:hover td { background: #fafafa; }
+    tr.selected td { background: #f5f3ff; }
+
+    .selection-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      background: #eef2ff; border: 1px solid #c7d2fe; padding: 10px 16px;
+      border-radius: 8px; margin-bottom: 12px; font-size: .9rem; color: #3730a3;
+    }
+    .pagination-bar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);
+      font-size: .85rem; color: var(--muted);
+    }
     .empty-state {
-      text-align: center; padding: 40px 20px; color: var(--muted);
+      text-align: center; padding: 36px 20px; color: var(--muted);
       border: 1px dashed var(--border); border-radius: 12px;
     }
+    .table-title { font-weight: 600; color: #0f172a; }
+    .table-desc { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -392,75 +414,272 @@
       );
     }
 
-    function RecordsList({ records, onEdit }) {
-      if (records.length === 0) {
-        return (
-          <div className="card">
-            <h2>Tarefas Persistidas</h2>
-            <div className="empty-state">
-              Nenhuma tarefa cadastrada ainda. Utilize o formulário acima para adicionar a primeira!
-            </div>
-          </div>
+    /** Issue #3: Tabela de Tarefas com 4 campos visíveis, 5 itens por página, ordenação, seleção e exclusão */
+    function RecordsTable({
+      records,
+      total,
+      page,
+      limit,
+      totalPages,
+      sort,
+      order,
+      onPageChange,
+      onSortChange,
+      onEdit,
+      onDelete,
+      onDeleteMultiple,
+      loading
+    }) {
+      const [selectedIds, setSelectedIds] = useState([]);
+
+      // Limpa a seleção ao trocar de página
+      useEffect(() => {
+        setSelectedIds([]);
+      }, [page]);
+
+      function toggleSelect(id) {
+        setSelectedIds(prev =>
+          prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
         );
+      }
+
+      function toggleSelectAll() {
+        if (selectedIds.length === records.length) {
+          setSelectedIds([]);
+        } else {
+          setSelectedIds(records.map(r => r.id));
+        }
+      }
+
+      function renderSortArrow(field) {
+        if (sort !== field) return <span style={{ opacity: 0.3 }}> ↕</span>;
+        return order === 'asc' ? ' ▲' : ' ▼';
       }
 
       return (
         <div className="card">
-          <h2>Tarefas Persistidas ({records.length})</h2>
-          <div className="subtitle">Dados recuperados do banco SQLite através da API.</div>
-          {records.map((rec) => (
-            <div key={rec.id} className="record-card">
-              <div style={{ flex: 1 }}>
-                <h3 className="record-title">#{rec.id} — {rec.title}</h3>
-                <p className="record-desc">{rec.description}</p>
-                <div className="record-meta">
-                  <span className="badge badge-cat">{rec.category}</span>
-                  <span className={`badge badge-${rec.priority}`}>
-                    {rec.priority === 'alta' ? 'Alta' : rec.priority === 'media' ? 'Média' : 'Baixa'}
-                  </span>
-                  {rec.due_date && <span>📅 Prazo: {rec.due_date}</span>}
-                  <span>🕒 Atualizado em: {new Date(rec.updated_at).toLocaleString('pt-BR')}</span>
-                </div>
-              </div>
-              <div>
-                <button
-                  type="button"
-                  className="secondary small"
-                  onClick={() => {
-                    onEdit(rec);
-                    document.getElementById('form-section')?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                >
-                  ✏️ Editar
-                </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div>
+              <h2>Tarefas Cadastradas ({total})</h2>
+              <div className="subtitle" style={{ margin: 0 }}>
+                Tabela paginada (5 itens/pág), ordenação por coluna e seleção múltipla.
               </div>
             </div>
-          ))}
+          </div>
+
+          {selectedIds.length > 0 && (
+            <div className="selection-bar">
+              <span><strong>{selectedIds.length}</strong> tarefa(s) selecionada(s)</span>
+              <button
+                type="button"
+                className="danger small"
+                onClick={() => {
+                  if (confirm(`Tem certeza que deseja excluir ${selectedIds.length} tarefa(s) selecionada(s)?`)) {
+                    onDeleteMultiple(selectedIds);
+                    setSelectedIds([]);
+                  }
+                }}
+              >
+                🗑️ Excluir Selecionadas
+              </button>
+            </div>
+          )}
+
+          {records.length === 0 ? (
+            <div className="empty-state">
+              Nenhuma tarefa cadastrada no banco de dados. Utilize o formulário acima para adicionar!
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 40, textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={records.length > 0 && selectedIds.length === records.length}
+                        onChange={toggleSelectAll}
+                        title="Selecionar todos da página"
+                      />
+                    </th>
+                    <th className="sortable" onClick={() => onSortChange('title')}>
+                      1. Título {renderSortArrow('title')}
+                    </th>
+                    <th className="sortable" onClick={() => onSortChange('category')}>
+                      2. Categoria {renderSortArrow('category')}
+                    </th>
+                    <th className="sortable" onClick={() => onSortChange('priority')}>
+                      3. Prioridade {renderSortArrow('priority')}
+                    </th>
+                    <th className="sortable" onClick={() => onSortChange('due_date')}>
+                      4. Prazo {renderSortArrow('due_date')}
+                    </th>
+                    <th style={{ textAlign: 'right' }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map(rec => {
+                    const isSelected = selectedIds.includes(rec.id);
+                    return (
+                      <tr key={rec.id} className={isSelected ? 'selected' : ''}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(rec.id)}
+                          />
+                        </td>
+                        <td>
+                          <div className="table-title">#{rec.id} — {rec.title}</div>
+                          <div className="table-desc">{rec.description}</div>
+                        </td>
+                        <td>
+                          <span className="badge badge-cat">{rec.category}</span>
+                        </td>
+                        <td>
+                          <span className={`badge badge-${rec.priority}`}>
+                            {rec.priority === 'alta' ? 'Alta' : rec.priority === 'media' ? 'Média' : 'Baixa'}
+                          </span>
+                        </td>
+                        <td>
+                          {rec.due_date ? <span>📅 {rec.due_date}</span> : <span style={{ color: '#94a3b8' }}>Sem prazo</span>}
+                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button
+                            type="button"
+                            className="secondary small"
+                            style={{ marginRight: 6 }}
+                            onClick={() => {
+                              onEdit(rec);
+                              document.getElementById('form-section')?.scrollIntoView({ behavior: 'smooth' });
+                            }}
+                            title="Editar registro"
+                          >
+                            ✏️ Editar
+                          </button>
+                          <button
+                            type="button"
+                            className="danger small"
+                            onClick={() => {
+                              if (confirm(`Deseja realmente excluir a tarefa "${rec.title}"?`)) {
+                                onDelete(rec.id);
+                              }
+                            }}
+                            title="Excluir registro"
+                          >
+                            🗑️ Excluir
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Paginação de 5 em 5 itens */}
+          <div className="pagination-bar">
+            <div>
+              Mostrando página <strong>{page}</strong> de <strong>{totalPages}</strong> (Total: {total} tarefas)
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="secondary small"
+                disabled={page <= 1 || loading}
+                onClick={() => onPageChange(page - 1)}
+              >
+                ◀ Anterior
+              </button>
+              <button
+                type="button"
+                className="secondary small"
+                disabled={page >= totalPages || loading}
+                onClick={() => onPageChange(page + 1)}
+              >
+                Próxima ▶
+              </button>
+            </div>
+          </div>
         </div>
       );
     }
 
     function MainApp({ username, token, onLogout }) {
       const [records, setRecords] = useState([]);
+      const [total, setTotal] = useState(0);
+      const [page, setPage] = useState(1);
+      const [limit] = useState(5);
+      const [totalPages, setTotalPages] = useState(1);
+      const [sort, setSort] = useState('id');
+      const [order, setOrder] = useState('desc');
+      const [loading, setLoading] = useState(false);
       const [editingRecord, setEditingRecord] = useState(null);
+      const [feedback, setFeedback] = useState('');
 
-      async function fetchRecords() {
+      // Dados carregados do banco SQLite ao abrir a página
+      async function fetchRecords(p = page, s = sort, o = order) {
+        setLoading(true);
         try {
-          const res = await fetch('/api/web/records', {
+          const res = await fetch(`/api/web/records?page=${p}&limit=${limit}&sort=${s}&order=${o}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (res.ok) {
             const data = await res.json();
-            setRecords(data);
+            setRecords(data.items || []);
+            setTotal(data.total || 0);
+            setPage(data.page || 1);
+            setTotalPages(data.totalPages || 1);
           }
         } catch (e) {
-          console.error('Falha ao carregar tarefas', e);
+          console.error('Falha ao carregar registros do banco', e);
+        } finally {
+          setLoading(false);
         }
       }
 
       useEffect(() => {
+        fetchRecords(page, sort, order);
+      }, [page, sort, order]);
+
+      function handleSortChange(field) {
+        if (sort === field) {
+          setOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+        } else {
+          setSort(field);
+          setOrder('asc');
+        }
+        setPage(1);
+      }
+
+      async function handleDelete(id) {
+        try {
+          const res = await fetch(`/api/web/records/${id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (res.ok) {
+            setFeedback(`Tarefa #${id} excluída com sucesso!`);
+            fetchRecords();
+          } else {
+            alert('Não foi possível excluir a tarefa.');
+          }
+        } catch (e) {
+          alert('Erro de conexão ao excluir tarefa.');
+        }
+      }
+
+      async function handleDeleteMultiple(ids) {
+        for (const id of ids) {
+          await fetch(`/api/web/records/${id}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        }
+        setFeedback(`${ids.length} tarefa(s) excluída(s) com sucesso!`);
         fetchRecords();
-      }, []);
+      }
 
       function handleSaved() {
         setEditingRecord(null);
@@ -480,6 +699,13 @@
             </div>
           </div>
 
+          {feedback && (
+            <div className="alert alert-success" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{feedback}</span>
+              <button type="button" className="secondary small" onClick={() => setFeedback('')}>✕</button>
+            </div>
+          )}
+
           <RecordForm
             editingRecord={editingRecord}
             onSaved={handleSaved}
@@ -487,9 +713,20 @@
             token={token}
           />
 
-          <RecordsList
+          <RecordsTable
             records={records}
+            total={total}
+            page={page}
+            limit={limit}
+            totalPages={totalPages}
+            sort={sort}
+            order={order}
+            onPageChange={(newPage) => setPage(newPage)}
+            onSortChange={handleSortChange}
             onEdit={(rec) => setEditingRecord(rec)}
+            onDelete={handleDelete}
+            onDeleteMultiple={handleDeleteMultiple}
+            loading={loading}
           />
         </div>
       );

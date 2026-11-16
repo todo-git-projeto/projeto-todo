@@ -4,6 +4,7 @@ import {
   Body,
   CanActivate,
   Controller,
+  Delete,
   DynamicModule,
   ExecutionContext,
   Get,
@@ -21,6 +22,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -29,7 +31,7 @@ import { NestFactory } from '@nestjs/core';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { Db, LogEvent, logEvent, RecordInput, RecordRow, verifyPassword } from './db';
+import { Db, LogEvent, logEvent, PaginatedRecords, RecordInput, RecordRow, verifyPassword } from './db';
 
 const TOKEN_TTL_SECONDS = 3600;
 
@@ -353,13 +355,49 @@ export class WebController {
     return record;
   }
 
-  /** Listagem dos registros existentes (para visualização imediata dos dados persistidos). */
+  /** Issue #3: Listagem paginada e ordenada com 5 itens por página para a Web (GET /api/web/records). */
   @Get('records')
   @UseGuards(AuthGuard)
-  listRecords(@Req() req: WebRequest): RecordRow[] {
-    const records = this.db.listRecords(req.requestId, 'web');
-    apiLog(req.requestId, 'INFO', 'list_records', 'success', `${records.length} registro(s) consultado(s)`);
-    return records;
+  listRecords(
+    @Query('page') pageParam: string | undefined,
+    @Query('limit') limitParam: string | undefined,
+    @Query('sort') sortParam: string | undefined,
+    @Query('order') orderParam: string | undefined,
+    @Req() req: WebRequest,
+  ): PaginatedRecords {
+    const result = this.db.listRecordsPaginated(
+      {
+        page: pageParam ? Number(pageParam) : 1,
+        limit: limitParam ? Number(limitParam) : 5,
+        sort: sortParam,
+        order: orderParam,
+      },
+      req.requestId,
+      'web',
+    );
+    apiLog(req.requestId, 'INFO', 'list_records', 'success', `${result.items.length} registro(s) consultado(s)`);
+    return result;
+  }
+
+  /** Issue #3: Exclusão de registro via Web (DELETE /api/web/records/{id}). */
+  @Delete('records/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(AuthGuard)
+  deleteRecord(@Param('id') idParam: string, @Req() req: WebRequest): { message: string; id: number } {
+    const id = Number(idParam);
+    if (isNaN(id) || id <= 0) {
+      apiLog(req.requestId, 'WARN', 'delete_record', 'error', 'ID de registro inválido');
+      throw new BadRequestException('ID de registro deve ser um número positivo');
+    }
+
+    const deleted = this.db.deleteRecord(id, req.requestId, 'web');
+    if (!deleted) {
+      apiLog(req.requestId, 'WARN', 'delete_record', 'error', `Registro ${id} não encontrado`);
+      throw new NotFoundException(`Registro ${id} não encontrado`);
+    }
+
+    apiLog(req.requestId, 'INFO', 'delete_record', 'success', `Registro ${id} excluído com sucesso`);
+    return { message: 'Registro excluído com sucesso', id };
   }
 }
 

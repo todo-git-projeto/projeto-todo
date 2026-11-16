@@ -376,7 +376,7 @@ describe('PUT /api/web/records/:id (Edição)', () => {
   });
 });
 
-describe('GET /api/web/records e /api/web/records/:id', () => {
+describe('GET /api/web/records e /api/web/records/:id (issue #3)', () => {
   it('exige autenticação nas rotas de consulta', async () => {
     const resList = await request(app.getHttpServer()).get('/api/web/records');
     expect(resList.status).toBe(401);
@@ -385,12 +385,17 @@ describe('GET /api/web/records e /api/web/records/:id', () => {
     expect(resItem.status).toBe(401);
   });
 
-  it('lista registros cadastrados com HTTP 200', async () => {
+  it('lista registros de forma paginada e ordenada com HTTP 200', async () => {
     const res = await request(app.getHttpServer())
-      .get('/api/web/records')
+      .get('/api/web/records?page=1&limit=5&sort=id&order=desc')
       .set('Authorization', `Bearer ${validToken}`);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.items).toBeDefined();
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.page).toBe(1);
+    expect(res.body.limit).toBe(5);
+    expect(res.body.total).toBeDefined();
+    expect(res.body.totalPages).toBeDefined();
   });
 
   it('busca registro por ID com HTTP 200 e trata 404 e 400', async () => {
@@ -419,6 +424,69 @@ describe('GET /api/web/records e /api/web/records/:id', () => {
       .get('/api/web/records/invalido')
       .set('Authorization', `Bearer ${validToken}`);
     expect(badId.status).toBe(400);
+  });
+});
+
+describe('DELETE /api/web/records/:id (Exclusão - issue #3)', () => {
+  let createdId: number;
+
+  beforeEach(async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/web/records')
+      .set('Authorization', `Bearer ${validToken}`)
+      .send({
+        title: 'Tarefa Para Exclusao',
+        description: 'Sera deletada no teste',
+        category: 'Geral',
+        priority: 'baixa',
+      });
+    createdId = res.body.id;
+  });
+
+  it('rejeita com HTTP 401 sem autenticação', async () => {
+    const res = await request(app.getHttpServer()).delete(`/api/web/records/${createdId}`);
+    expect(res.status).toBe(401);
+  });
+
+  it('rejeita com HTTP 400 para ID inválido', async () => {
+    const res = await request(app.getHttpServer())
+      .delete('/api/web/records/abc')
+      .set('Authorization', `Bearer ${validToken}`);
+    expect(res.status).toBe(400);
+
+    const resNeg = await request(app.getHttpServer())
+      .delete('/api/web/records/-5')
+      .set('Authorization', `Bearer ${validToken}`);
+    expect(resNeg.status).toBe(400);
+  });
+
+  it('retorna HTTP 404 para ID inexistente', async () => {
+    const res = await request(app.getHttpServer())
+      .delete('/api/web/records/999999')
+      .set('Authorization', `Bearer ${validToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('exclui registro existente com HTTP 200 e logs correlacionados', async () => {
+    const res = await request(app.getHttpServer())
+      .delete(`/api/web/records/${createdId}`)
+      .set('Authorization', `Bearer ${validToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe('Registro excluído com sucesso');
+    expect(res.body.id).toBe(createdId);
+
+    const requestId = res.headers['x-request-id'];
+    const apiLog = logs().find((l) => l.layer === 'api' && l.operation === 'delete_record' && l.status === 'success');
+    const dbLog = logs().find((l) => l.layer === 'db' && l.operation === 'delete_record' && l.status === 'success');
+    expect(apiLog).toMatchObject({ request_id: requestId, client: 'web' });
+    expect(dbLog).toMatchObject({ request_id: requestId, client: 'web' });
+
+    // Verifica que não é mais encontrado
+    const check = await request(app.getHttpServer())
+      .get(`/api/web/records/${createdId}`)
+      .set('Authorization', `Bearer ${validToken}`);
+    expect(check.status).toBe(404);
   });
 });
 

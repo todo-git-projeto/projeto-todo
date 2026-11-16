@@ -249,6 +249,91 @@ describe('Db - Registros (Tarefas)', () => {
     expect(list[1].title).toBe('A');
     db.close();
   });
+
+  // Issue #3: Testes de paginação e exclusão
+  it('lista registros de forma paginada (5 itens por página) e ordenada (issue #3)', () => {
+    const db = new Db(':memory:');
+    for (let i = 1; i <= 7; i++) {
+      db.createRecord(
+        {
+          title: `Tarefa ${String(i).padStart(2, '0')}`,
+          description: `Desc ${i}`,
+          category: 'Trabalho',
+          priority: i % 2 === 0 ? 'alta' : 'baixa',
+          due_date: `2026-11-${String(10 + i).padStart(2, '0')}`,
+        },
+        `req-bulk-${i}`,
+        'web',
+      );
+    }
+
+    // Página 1 com limite padrão de 5 itens
+    const page1 = db.listRecordsPaginated({ page: 1, limit: 5, sort: 'title', order: 'asc' }, 'req-p1', 'web');
+    expect(page1.total).toBe(7);
+    expect(page1.page).toBe(1);
+    expect(page1.limit).toBe(5);
+    expect(page1.totalPages).toBe(2);
+    expect(page1.items).toHaveLength(5);
+    expect(page1.items[0].title).toBe('Tarefa 01');
+
+    // Página 2 com os 2 itens restantes
+    const page2 = db.listRecordsPaginated({ page: 2, limit: 5, sort: 'title', order: 'asc' }, 'req-p2', 'web');
+    expect(page2.page).toBe(2);
+    expect(page2.items).toHaveLength(2);
+    expect(page2.items[0].title).toBe('Tarefa 06');
+
+    // Ordenação decrescente e campo inválido (fallback para id)
+    const fallback = db.listRecordsPaginated({ page: 1, limit: 5, sort: 'campo_inexistente', order: 'desc' }, 'req-fb', 'web');
+    expect(fallback.items[0].id).toBeGreaterThan(fallback.items[1].id);
+
+    db.close();
+  });
+
+  it('exclui registro existente e registra log na camada db (issue #3)', () => {
+    const db = new Db(':memory:');
+    const created = db.createRecord(
+      {
+        title: 'Para excluir',
+        description: 'Sera removida',
+        category: 'Geral',
+        priority: 'baixa',
+      },
+      'req-del-init',
+      'web',
+    );
+
+    written = [];
+    const success = db.deleteRecord(created.id, 'req-del-1', 'web');
+    expect(success).toBe(true);
+
+    const check = db.findRecordById(created.id, 'req-check', 'web');
+    expect(check).toBeUndefined();
+
+    const delLog = logs().find((l) => l.operation === 'delete_record');
+    expect(delLog).toMatchObject({
+      layer: 'db',
+      client: 'web',
+      status: 'success',
+      request_id: 'req-del-1',
+    });
+    db.close();
+  });
+
+  it('retorna false e registra WARN ao tentar excluir registro inexistente (issue #3)', () => {
+    const db = new Db(':memory:');
+    written = [];
+    const success = db.deleteRecord(8888, 'req-del-fail', 'web');
+    expect(success).toBe(false);
+
+    const delLog = logs().find((l) => l.operation === 'delete_record');
+    expect(delLog).toMatchObject({
+      layer: 'db',
+      status: 'error',
+      level: 'WARN',
+      request_id: 'req-del-fail',
+    });
+    db.close();
+  });
 });
 
 describe('findCliUser (issue #7)', () => {
