@@ -1,4 +1,4 @@
-#Projeto To-Di List:
+#Projeto To-Do List:
 Membros e Matrícula:
 
 2650380 - Luan Costa Rodrigues
